@@ -1,2 +1,2 @@
-# Example
-An example greeter plugin
+# GodlikeHttp Extended
+Http server and client
