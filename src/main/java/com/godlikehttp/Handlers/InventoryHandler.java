@@ -1,17 +1,23 @@
 package com.godlikehttp.Handlers;
 
 import com.godlikehttp.GodlikeHttpPlugin;
-import com.godlikehttp.Helpers;
+import com.google.gson.JsonObject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
-import net.runelite.api.ItemContainer;
 import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.game.ItemManager;
+import net.runelite.http.api.RuneLiteAPI;
 
 @Slf4j
 public class InventoryHandler extends BaseHttpHandler
 {
     private Item[] inventoryState;
+//    private boolean isFull;
+//    private boolean isEmpty;
+    private int itemCount;
+    private int gePrice;
 
 
     @Override
@@ -23,26 +29,45 @@ public class InventoryHandler extends BaseHttpHandler
     @Override
     public Object getData()
     {
-        return inventoryState;
+        JsonObject jsonObject = new JsonObject();
+        jsonObject.addProperty("item_count", itemCount);
+        jsonObject.addProperty("is_full", itemCount == 28);
+        jsonObject.addProperty("is_empty", itemCount == 0);
+        jsonObject.addProperty("ge_price", gePrice);
+        jsonObject.add("items", RuneLiteAPI.GSON.toJsonTree(inventoryState));
+        return jsonObject;
     }
 
-    public void onInventoryChanged(final ItemContainerChanged event)
+    @Subscribe
+    public void onItemContainerChanged(final ItemContainerChanged event)
     {
-        if (event.getItemContainer() != GodlikeHttpPlugin.getClient().getItemContainer(InventoryID.INVENTORY))
-            return;
-
-        if (inventoryState == null)
+        if (event.getItemContainer() == GodlikeHttpPlugin.getClient().getItemContainer(InventoryID.INVENTORY))
         {
-            log.info("Inventory state initialized, serializing...");
+            ItemManager itemManager = GodlikeHttpPlugin.getItemManager();
+            
             inventoryState = event.getItemContainer().getItems();
-            return;
-        }
-
-        ItemContainer currentContainer = event.getItemContainer();
-        if (!Helpers.checkItemContainerEqual(inventoryState, currentContainer.getItems()))
-        {
-            log.info("Inventory state changed, serializing...");
-            inventoryState = currentContainer.getItems();
+            itemCount = 0;
+            gePrice = 0;
+            
+//            isFull = true;
+//            isEmpty = true;
+//            for (Item i : inventoryState)
+//            {
+//                if (i.getId() == -1 || i.getQuantity() <= 0)
+//                    isFull = false;
+//                
+//                if (i.getId() != -1 && i.getQuantity() >= 0)
+//                    isEmpty = false;
+//            }
+            
+            for (Item i : inventoryState)
+            {
+                if (i.getId() != -1 && i.getQuantity() >= 0)
+                {
+                    itemCount++;
+                    gePrice += i.getQuantity() * itemManager.getItemComposition(i.getId()).getPrice();
+                }
+            }
         }
     }
 }

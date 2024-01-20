@@ -26,25 +26,9 @@ public abstract class BaseHttpHandler implements HttpHandler
             GodlikeHttpPlugin.instance.handlersProcessed.add(this);
             GodlikeHttpPlugin.instance.handlersQueued.add(this);
         }
-
-//        exchange.sendResponseHeaders(200, 0);
-//        try (OutputStreamWriter out = new OutputStreamWriter(exchange.getResponseBody()))
-//        {
-//            JsonObject jsonObject = new JsonObject();
-//            jsonObject.add(getName(), RuneLiteAPI.GSON.toJsonTree(getData()));
-//            
-//            log.info("Sent " + jsonObject);
-//            out.write(jsonObject.toString());
-//        }
-//        exchange.close();
     }
 
     public abstract String getName();
 
     public abstract Object getData();
-
-//    public HttpExchange getHttpExchange()
-//    {
-//        return this.currentExchange;
-//    }
 }

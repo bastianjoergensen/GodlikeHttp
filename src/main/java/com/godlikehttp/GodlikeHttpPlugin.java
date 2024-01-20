@@ -7,12 +7,11 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
-import net.runelite.api.InventoryID;
-import net.runelite.api.events.GameStateChanged;
-import net.runelite.api.events.GameTick;
-import net.runelite.api.events.ItemContainerChanged;
+import net.runelite.api.events.*;
 import net.runelite.client.config.ConfigManager;
+import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
@@ -22,7 +21,9 @@ import javax.inject.Inject;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.net.InetSocketAddress;
-import java.util.*;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.concurrent.Executors;
 
 @Slf4j
@@ -44,13 +45,11 @@ public class GodlikeHttpPlugin extends Plugin
 
     public HttpServer server;
 
+    private EventBus eventBus;
+
+    public HashSet<BaseHttpHandler> handlers;
     public HashSet<BaseHttpHandler> handlersProcessed;
     public Queue<BaseHttpHandler> handlersQueued;
-
-    private InventoryHandler inventoryHandler;
-    private HealthHandler healthHandler;
-    private PrayerHandler prayerHandler;
-    private SkillsHandler skillsHandler;
 
 
     @Provides
@@ -60,16 +59,17 @@ public class GodlikeHttpPlugin extends Plugin
     }
 
     @Override
-    protected void startUp() throws Exception
+    protected void startUp()
     {
         log.info("GodlikeHttpPlugin Started!");
 
         instance = this;
 
+        eventBus = new EventBus();
+
         handlersProcessed = new HashSet<>();
         handlersQueued = new LinkedList<>();
 
-        // Start the HTTP server
         this.startHttpServer();
     }
 
@@ -83,32 +83,71 @@ public class GodlikeHttpPlugin extends Plugin
     @Subscribe
     public void onGameTick(final GameTick event)
     {
-        // Call your method here
+        eventBus.post(event);
+        
         handleHttpExchange();
         handlersProcessed.clear();
     }
 
     @Subscribe
-    public void onGameStateChanged(GameStateChanged state)
+    public void onGameStateChanged(GameStateChanged event)
     {
-
+        eventBus.post(event);
     }
 
     @Subscribe
     public void onItemContainerChanged(final ItemContainerChanged event)
     {
-        if (event.getItemContainer() == client.getItemContainer(InventoryID.INVENTORY))
-            inventoryHandler.onInventoryChanged(event);
+        eventBus.post(event);
+    }
+
+    @Subscribe
+    public void onInteractingChanged(InteractingChanged event)
+    {
+        eventBus.post(event);
+    }
+
+    @Subscribe
+    public void onNpcChanged(NpcChanged event)
+    {
+        eventBus.post(event);
+    }
+
+    @Subscribe
+    public void onNpcLootReceived(final NpcLootReceived event)
+    {
+        eventBus.post(event);
+    }
+
+    @Subscribe
+    void onAnimationChanged(AnimationChanged event)
+    {
+        eventBus.post(event);
     }
 
     public void handleHttpExchange()
     {
         try
         {
+            int Tries = 0;
             while (!handlersQueued.isEmpty())
             {
+                Tries++;
+                if (Tries >= 100)
+                {
+                    log.info("Tried 100 times to send data, clearing queue");
+                    handlersQueued.clear();
+                    break;
+                }
+                
                 BaseHttpHandler handler = handlersQueued.poll();
+                if (handler == null)
+                    continue;
+                
                 HttpExchange exchange = handler.getCurrentExchange();
+                if (exchange == null)
+                    continue;
+                
                 exchange.sendResponseHeaders(200, 0);
 
                 try (OutputStreamWriter out = new OutputStreamWriter(exchange.getResponseBody()))
@@ -126,64 +165,52 @@ public class GodlikeHttpPlugin extends Plugin
         }
         catch (IOException e)
         {
+            if (e.getMessage().equals("An established connection was aborted by the software in your host machine"))
+            {
+                log.info(e.getMessage());
+                return;
+            }
+            log.error("Error handling HTTP exchange", e);
+        }
+        catch (Exception e)
+        {
             log.error("Error handling HTTP exchange", e);
         }
     }
 
-//    public void handleHttpExchange()
-//    {
-//        try
-//        {
-//            
-//            Iterator<BaseHttpHandler> iterator = handlersQueued.iterator();
-//            while (iterator.hasNext())
-//            {
-//                BaseHttpHandler handler = iterator.next();
-//                if (handlersProcessed.contains(handler))
-//                    continue;
-//                
-//                handlersProcessed.add(handler);
-//                
-//                HttpExchange exchange = handler.getCurrentExchange();
-//                exchange.sendResponseHeaders(200, 0);
-//                
-//                try (OutputStreamWriter out = new OutputStreamWriter(exchange.getResponseBody()))
-//                {
-//                    JsonObject jsonObject = new JsonObject();
-//                    jsonObject.add(handler.getName(), RuneLiteAPI.GSON.toJsonTree(handler.getData()));
-//
-//                    log.info("Sent " + jsonObject);
-//                    out.write(jsonObject.toString());
-//                }
-//
-//                exchange.close();
-//                handler.setCurrentExchange(null);
-//
-//                iterator.remove();
-//            }
-//        }
-//        catch (IOException e)
-//        {
-//            log.error("Error handling HTTP exchange", e);
-//        }
-//    }
-
-    private void startHttpServer() throws Exception
+    private void startHttpServer()
     {
-        inventoryHandler = new InventoryHandler();
-        healthHandler = new HealthHandler();
-        prayerHandler = new PrayerHandler();
-        skillsHandler = new SkillsHandler();
+        try
+        {
+            server = HttpServer.create(new InetSocketAddress(9420), 0);
 
-        server = HttpServer.create(new InetSocketAddress(9420), 0);
-        server.createContext("/inventory", inventoryHandler);
-        server.createContext("/health", healthHandler);
-        server.createContext("/prayer", prayerHandler);
-        server.createContext("/skills", skillsHandler);
-        server.setExecutor(Executors.newSingleThreadExecutor());
-        server.start();
+            handlers = new HashSet<>();
+            handlers.add(new AnimationHandler());
+            handlers.add(new GameHandler());
+            handlers.add(new InventoryHandler());
+            handlers.add(new LootHandler());
+            handlers.add(new NpcHandler());
+            handlers.add(new SkillsHandler());
+            handlers.add(new StatusHandler());
 
-        log.info("GodlikeHttpPlugin HTTP server started!");
+            for (BaseHttpHandler handler : handlers)
+            {
+                log.info("Registered handler: api/" + handler.getName());
+
+                eventBus.register(handler);
+                server.createContext("/api/" + handler.getName(), handler);
+            }
+
+//            server.setExecutor(Executors.newSingleThreadExecutor());
+            server.setExecutor(Executors.newFixedThreadPool(10));
+            server.start();
+
+            log.info("GodlikeHttpPlugin HTTP server started!");
+        }
+        catch (IOException e)
+        {
+            log.error("Error starting HTTP server", e);
+        }
     }
 
     public static Client getClient()
