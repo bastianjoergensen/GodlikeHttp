@@ -49,17 +49,6 @@ public class InventoryHandler extends BaseHttpHandler
             itemCount = 0;
             gePrice = 0;
             
-//            isFull = true;
-//            isEmpty = true;
-//            for (Item i : inventoryState)
-//            {
-//                if (i.getId() == -1 || i.getQuantity() <= 0)
-//                    isFull = false;
-//                
-//                if (i.getId() != -1 && i.getQuantity() >= 0)
-//                    isEmpty = false;
-//            }
-            
             for (Item i : inventoryState)
             {
                 if (i.getId() != -1 && i.getQuantity() >= 0)
