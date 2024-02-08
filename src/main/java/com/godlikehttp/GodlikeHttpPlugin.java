@@ -165,6 +165,8 @@ public class GodlikeHttpPlugin extends Plugin
         }
         catch (IOException e)
         {
+            handlersQueued.clear();
+            
             if (e.getMessage().equals("An established connection was aborted by the software in your host machine"))
             {
                 log.info(e.getMessage());
@@ -174,6 +176,8 @@ public class GodlikeHttpPlugin extends Plugin
         }
         catch (Exception e)
         {
+            handlersQueued.clear();
+            
             log.error("Error handling HTTP exchange", e);
         }
     }
@@ -186,6 +190,8 @@ public class GodlikeHttpPlugin extends Plugin
 
             handlers = new HashSet<>();
             handlers.add(new AnimationHandler());
+            handlers.add(new BankHandler());
+            handlers.add(new EquipmentHandler());
             handlers.add(new GameHandler());
             handlers.add(new InventoryHandler());
             handlers.add(new LootHandler());
