@@ -1,9 +1,7 @@
 package com.godlikehttp;
 
 import com.godlikehttp.Handlers.*;
-import com.google.gson.JsonObject;
 import com.google.inject.Provides;
-import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.Client;
@@ -15,15 +13,11 @@ import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.http.api.RuneLiteAPI;
 
 import javax.inject.Inject;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.net.InetSocketAddress;
 import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.Queue;
 import java.util.concurrent.Executors;
 
 @Slf4j
@@ -48,8 +42,7 @@ public class GodlikeHttpPlugin extends Plugin
     private EventBus eventBus;
 
     public HashSet<BaseHttpHandler> handlers;
-    public HashSet<BaseHttpHandler> handlersProcessed;
-    public Queue<BaseHttpHandler> handlersQueued;
+    public HashSet<BaseHttpHandler> handlersQueued;
 
 
     @Provides
@@ -66,9 +59,7 @@ public class GodlikeHttpPlugin extends Plugin
         instance = this;
 
         eventBus = new EventBus();
-
-        handlersProcessed = new HashSet<>();
-        handlersQueued = new LinkedList<>();
+        handlersQueued = new HashSet<>();
 
         this.startHttpServer();
     }
@@ -78,15 +69,25 @@ public class GodlikeHttpPlugin extends Plugin
     {
         log.info("GodlikeHttpPlugin stopped!");
         server.stop(1);
+        
+        for (BaseHttpHandler handler : handlers)
+            eventBus.unregister(handler);
+        
+        handlers.clear();
+        handlersQueued.clear();
     }
 
     @Subscribe
     public void onGameTick(final GameTick event)
     {
         eventBus.post(event);
+
+        handlersQueued.clear();
         
-        handleHttpExchange();
-        handlersProcessed.clear();
+        for (BaseHttpHandler handler : handlers)
+        {
+            handler.setCanTick(true);
+        }
     }
 
     @Subscribe
@@ -125,63 +126,6 @@ public class GodlikeHttpPlugin extends Plugin
         eventBus.post(event);
     }
 
-    public void handleHttpExchange()
-    {
-        try
-        {
-            int Tries = 0;
-            while (!handlersQueued.isEmpty())
-            {
-                Tries++;
-                if (Tries >= 100)
-                {
-                    log.info("Tried 100 times to send data, clearing queue");
-                    handlersQueued.clear();
-                    break;
-                }
-                
-                BaseHttpHandler handler = handlersQueued.poll();
-                if (handler == null)
-                    continue;
-                
-                HttpExchange exchange = handler.getCurrentExchange();
-                if (exchange == null)
-                    continue;
-                
-                exchange.sendResponseHeaders(200, 0);
-
-                try (OutputStreamWriter out = new OutputStreamWriter(exchange.getResponseBody()))
-                {
-                    JsonObject jsonObject = new JsonObject();
-                    jsonObject.add(handler.getName(), RuneLiteAPI.GSON.toJsonTree(handler.getData()));
-
-                    log.info("Sent " + jsonObject);
-                    out.write(jsonObject.toString());
-                }
-
-                exchange.close();
-                handler.setCurrentExchange(null);
-            }
-        }
-        catch (IOException e)
-        {
-            handlersQueued.clear();
-            
-            if (e.getMessage().equals("An established connection was aborted by the software in your host machine"))
-            {
-                log.info(e.getMessage());
-                return;
-            }
-            log.error("Error handling HTTP exchange", e);
-        }
-        catch (Exception e)
-        {
-            handlersQueued.clear();
-            
-            log.error("Error handling HTTP exchange", e);
-        }
-    }
-
     private void startHttpServer()
     {
         try
@@ -207,8 +151,8 @@ public class GodlikeHttpPlugin extends Plugin
                 server.createContext("/api/" + handler.getName(), handler);
             }
 
-//            server.setExecutor(Executors.newSingleThreadExecutor());
-            server.setExecutor(Executors.newFixedThreadPool(10));
+            server.setExecutor(Executors.newSingleThreadExecutor());
+//            server.setExecutor(Executors.newFixedThreadPool(10));
             server.start();
 
             log.info("GodlikeHttpPlugin HTTP server started!");

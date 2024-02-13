@@ -14,8 +14,6 @@ import net.runelite.http.api.RuneLiteAPI;
 public class InventoryHandler extends BaseHttpHandler
 {
     private Item[] inventoryState;
-//    private boolean isFull;
-//    private boolean isEmpty;
     private int itemCount;
     private int gePrice;
 
